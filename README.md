@@ -1,2 +1,2 @@
 # obs-smjj
-WorkBuddy Skill - 私募基金尽调知识库维护工具
+WorkBuddy Skill - 通过Obsidian及workbuddy（为例）自动化执行私募基金尽调分析，数据收集，管理人信息报告等知识库建立
