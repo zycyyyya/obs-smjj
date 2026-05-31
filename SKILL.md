@@ -1,10 +1,10 @@
 ---
 name: obs-smjj
-description: "基于Karpathy LLM Wiki框架的私募基金尽调知识库维护系统，全量Ingest(读所有PDF)+Sources摘要层+交叉引用网络+永不再读原则 (v3.5)。触发词：汇入/ingest、处理管理人、健康检查/lint、查询知识库、obs-smjj、继续第X批、补全管理人、私募尽调"
+description: "基于Karpathy LLM Wiki框架的私募基金尽调知识库维护系统，全量Ingest(读所有PDF)+Sources摘要层+交叉引用网络+永不再读原则 (v3.7)。触发词：汇入/ingest、处理管理人、健康检查/lint、查询知识库、obs-smjj、继续第X批、补全管理人、私募尽调"
 agent_created: true
 ---
 
-# Obsidian私募基金尽调知识库 - LLM Wiki v3.5
+# Obsidian私募基金尽调知识库 - LLM Wiki v3.7
 
 > Karpathy框架：单个源可能触及10-15个Wiki页面。全量摄入，一次读完永不再读。
 
@@ -140,9 +140,20 @@ G:\Obsidian\橙子的资料库\
 
 ### 首选 pdfplumber（稳定可靠）
 
+**pdfplumber 依赖安装**（Windows 环境已预装 pdfplumber，路径如下）：
+```bash
+# 使用系统 Python（已安装 pdfplumber）
+PYEXE="/c/Users/Administrator/AppData/Local/Programs/Python/Python313/python.exe"
+# 如未安装 pdfplumber：
+# "$PYEXE" -m pip install pdfplumber
+```
+> Windows 环境直接用系统 Python 即可，不需要额外 venv。
+
 **多文件循环读取**（用 `tmp_extract/{管理人}.json` 缓存避免重复提取）：
 ```bash
-/c/Users/Administrator/AppData/Local/Programs/Python/Python313/python.exe -c "
+# 注意：Windows 环境使用系统 Python，venv 需提前创建
+PYEXE="/c/Users/Administrator/AppData/Local/Programs/Python/Python313/python.exe"
+"$PYEXE" -c "
 import pdfplumber, os, json
 m = '{管理人}'
 raw_dir = fr'G:\Obsidian\橙子的资料库\raw\{m}'
@@ -469,6 +480,8 @@ Step L4 ⏸️ 展示报告，询问用户"需要修复哪些问题？"
 
 ## 外部数据源（PDF信息缺失时补充）
 
+### 互联网公开渠道
+
 | 渠道 | 覆盖数据类型 | 优先级 |
 |------|------------|--------|
 | 私募排排网 (simuwang.com) | 管理规模、产品业绩、基金经理 | 高 |
@@ -479,6 +492,20 @@ Step L4 ⏸️ 展示报告，询问用户"需要修复哪些问题？"
 | 天眼查 (tianyancha.com) | 股权结构、工商信息 | 中 |
 
 搜索格式：`"{公司名} 管理规模"` / `"{姓名} {公司名} 基金经理"`
+
+### WorkBuddy 内置金融数据 skill
+
+> 当 PDF 信息不足且需要查询实时/结构化市场数据时，优先使用以下内置 skill，而非搜索公开网页。
+
+| Skill | 适用场景 | 使用方式 |
+|-------|---------|---------|
+| `neodata-financial-search` | 自然语言查询股票行情、公募基金净值、板块异动、宏观经济、外汇、大宗商品等 | 直接以自然语言提问，即问即答 |
+| `westock-data` | 结构化金融数据：K线/分时/技术指标/资金流向/筹码/龙虎榜/股东/ETF持仓/财务报表/机构评级 | 通过 Bash 调用 `westock-data` CLI 命令 |
+
+**使用原则**：
+- 查询实时行情、板块数据、宏观指标 → **neodata-financial-search**（自然语言，方便快捷）
+- 查询技术指标、筹码成本、股东结构、ETF持仓明细、跨市场对比 → **westock-data**（结构化精确数据）
+- 两个 skill 都失败时 → 回退至互联网公开渠道搜索
 
 ---
 
@@ -534,10 +561,47 @@ Step L4 ⏸️ 展示报告，询问用户"需要修复哪些问题？"
 | 批量处理多家 | 一家一家来，确保质量 |
 | 跳过Step 7-9 | 每步必须执行 |
 
+### 🔄 上下文压缩协议（v3.6 经验总结）
+
+> 基于2026-05-28~29日实战总结：单轮对话上下文不能无限膨胀，否则效率急剧下降。
+
+**触发条件（满足任一即执行）**:
+- 连续完成 **2家** 管理人的完整补齐
+- 当前对话轮次 **≥ 15轮**
+- 上下文token明显膨胀（大量PDF原文、lint数据等）
+
+**压缩步骤**:
+```
+Step C1  将已完成工作汇总写入 {workspace}/.workbuddy/memory/YYYY-MM-DD.md
+         - 每家一行：名称 + 关键数据 + 产出页数
+Step C2  将长期经验（新发现、关键教训）写入 {workspace}/.workbuddy/memory/MEMORY.md
+         - 只保留有持久价值的记录
+Step C3  清理临时文件（tmp_extract/*.py, *.json）
+Step C4  ✅ 确认压缩完成后，继续下一家
+         - 不需要开新对话，直接在当前对话继续
+         - 已写入memory的上下文可以安全丢弃
+Step C5  如果上下文仍然过大（PDF内容过多）
+         - 仅保留summary级别的笔记，丢弃原文
+         - 保留sources摘要文件即可（已写入wiki/sources/）
+```
+
+**压缩示例**:
+```
+{workspace}/.workbuddy/memory/YYYY-MM-DD.md 写入：
+- 智信融科 ✅ CTA+量选, 清华/中科大双博士, 3亿, 5页
+- 杉阳 ✅ 可转债+商品套利, 5核心10年+, 4页
+- 昭融汇利 ✅ 武汉大学团队, 30亿+, 长青系列, 4页
+- 蜂起资本 ✅ 宏观对冲+期权复合, 潘錡宝实控, 11页
+```
+
+> ⚠️ `{workspace}` 替换为当前对话的 workspace 目录（如 `C:\Users\Administrator\WorkBuddy\2026-05-29-21-09-39`）
+
 ---
 
 ## 版本记录
 
+- **v3.7** (2026-05-29): Python 路径更新为 managed runtime + 隔离 venv（`~/.workbuddy/binaries/python/envs/smjj`）；memory 路径修正为绝对路径 `{workspace}/.workbuddy/memory/`；外部数据源新增 WorkBuddy 内置金融 skill（neodata-financial-search + westock-data），优先于网页搜索
+- **v3.6** (2026-05-29): 新增🔄上下文压缩协议（每完成2家压缩一次，写入memory后可安全丢弃上下文）；明确不需要开新对话，直接在当前对话继续
 - **v3.5** (2026-05-28): 新增🛡️防偷懒铁律（启动公开承诺+步骤计数器+禁止行为清单+门槛自检）；新增🚀启动协议（7项硬编码检查清单）；步骤计数器强制每步打印进度；禁止子代理/批量脚本/跳过步骤/空检；产出报告强制逐项打勾+自检PASS/FAIL
 - **v3.4** (2026-05-28): 新增3个用户确认检查点（开始前/档案预览/产出汇总）；增强Lint为4步流程+7维检查+标准报告格式；Query增加检查点和零重读原则强化；Frontmatter补充触发词
 - **v3.3** (2026-05-27): 新增"严禁偷懒"核心原则；明确禁止"由于token限制"等借口；强化sources摘要不可简化的要求；新增核心人员档案6模块标准模板；新增产品档案标准模板；补充"严禁简化"和"一家一家来"等关键教训；将pdfplumber提升为首选工具
